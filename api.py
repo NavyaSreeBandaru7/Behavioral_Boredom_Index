@@ -1,3 +1,8 @@
+"""
+Behavioral Boredom Index - REST API
+High-performance async API for real-time engagement analysis
+"""
+
 from fastapi import FastAPI, HTTPException, Depends, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -465,4 +470,320 @@ async def log_analysis_event(employee_id: str, boredom_score: float, risk_level:
     """Log analysis event for audit trail"""
     logger.info(f"Analysis performed - Employee: {employee_id}, Score: {boredom_score:.2f}, Risk: {risk_level}, User: {user_id}")
 
-async def log_team_analysis_event(
+async def log_team_analysis_event(team_id: str, team_size: int, avg_boredom_score: float, user_id: str):
+    """Log team analysis event for audit trail"""
+    logger.info(f"Team analysis performed - Team: {team_id}, Size: {team_size}, Avg Score: {avg_boredom_score:.2f}, User: {user_id}")
+
+def generate_individual_recommendations(signal: BoredomSignal) -> List[str]:
+    """Generate personalized recommendations based on boredom signal"""
+    recommendations = []
+    
+    if signal.risk_level == "CRITICAL":
+        recommendations.extend([
+            "Schedule immediate one-on-one meeting",
+            "Conduct detailed engagement survey",
+            "Consider role adjustment or new project assignment",
+            "Implement retention strategies immediately"
+        ])
+    elif signal.risk_level == "HIGH":
+        recommendations.extend([
+            "Schedule check-in meeting within 48 hours",
+            "Review current workload and projects",
+            "Explore professional development opportunities",
+            "Consider temporary project rotation"
+        ])
+    elif signal.risk_level == "MEDIUM":
+        recommendations.extend([
+            "Monitor engagement trends closely",
+            "Provide new challenges or learning opportunities",
+            "Increase collaboration on interesting projects",
+            "Schedule regular feedback sessions"
+        ])
+    else:  # LOW
+        recommendations.extend([
+            "Maintain current engagement levels",
+            "Consider for leadership opportunities",
+            "Use as mentor for struggling team members",
+            "Recognize and reward current performance"
+        ])
+    
+    # Add specific recommendations based on contributing factors
+    factors = signal.contributing_factors
+    
+    if factors.get('calendar_emptiness', 0) > 0.6:
+        recommendations.append("Increase meeting participation and collaborative work")
+    
+    if factors.get('low_collaboration', 0) > 0.6:
+        recommendations.append("Assign to cross-functional team projects")
+    
+    if factors.get('sentiment_decline', 0) > 0.6:
+        recommendations.append("Focus on positive team building activities")
+    
+    if factors.get('innovation_deficit', 0) > 0.6:
+        recommendations.append("Provide creative challenges and innovation time")
+    
+    return recommendations[:6]  # Limit to 6 most relevant recommendations
+
+# Advanced analytics endpoints
+@app.get("/analytics/trends/{employee_id}")
+async def get_employee_trends(
+    employee_id: str,
+    days: int = 90,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Get historical engagement trends for an employee"""
+    # In production, this would query historical data
+    # For demo, return simulated trend data
+    
+    dates = pd.date_range(end=datetime.now(), periods=days, freq='D')
+    
+    # Simulate trend data with some variance
+    base_score = 0.4 + (hash(employee_id) % 100) / 250  # Consistent base per employee
+    trend_data = []
+    
+    for i, date in enumerate(dates):
+        # Add some realistic variance
+        daily_variance = 0.1 * (i % 7) / 7  # Weekly pattern
+        noise = (hash(f"{employee_id}_{date}") % 100 - 50) / 1000  # Random noise
+        
+        score = max(0, min(1, base_score + daily_variance + noise))
+        
+        trend_data.append({
+            "date": date.isoformat(),
+            "boredom_score": round(score, 3),
+            "risk_level": "LOW" if score < 0.3 else "MEDIUM" if score < 0.6 else "HIGH" if score < 0.8 else "CRITICAL"
+        })
+    
+    return {
+        "employee_id": employee_id,
+        "period_days": days,
+        "trend_data": trend_data,
+        "summary_stats": {
+            "avg_score": sum(d["boredom_score"] for d in trend_data) / len(trend_data),
+            "max_score": max(d["boredom_score"] for d in trend_data),
+            "min_score": min(d["boredom_score"] for d in trend_data),
+            "trend_direction": "stable"  # Would calculate actual trend
+        }
+    }
+
+@app.get("/analytics/benchmarks")
+async def get_industry_benchmarks(
+    industry: str = "technology",
+    company_size: str = "medium",
+    current_user: Dict = Depends(get_current_user)
+):
+    """Get industry benchmarks for comparison"""
+    # Simulated benchmark data
+    benchmarks = {
+        "technology": {
+            "small": {"avg_boredom": 0.35, "turnover_risk": 0.15, "innovation_score": 0.75},
+            "medium": {"avg_boredom": 0.42, "turnover_risk": 0.22, "innovation_score": 0.68},
+            "large": {"avg_boredom": 0.48, "turnover_risk": 0.28, "innovation_score": 0.62}
+        },
+        "finance": {
+            "small": {"avg_boredom": 0.45, "turnover_risk": 0.18, "innovation_score": 0.55},
+            "medium": {"avg_boredom": 0.52, "turnover_risk": 0.25, "innovation_score": 0.48},
+            "large": {"avg_boredom": 0.58, "turnover_risk": 0.32, "innovation_score": 0.42}
+        }
+    }
+    
+    industry_data = benchmarks.get(industry, benchmarks["technology"])
+    size_data = industry_data.get(company_size, industry_data["medium"])
+    
+    return {
+        "industry": industry,
+        "company_size": company_size,
+        "benchmarks": size_data,
+        "percentiles": {
+            "p25": {k: v * 0.8 for k, v in size_data.items()},
+            "p50": size_data,
+            "p75": {k: v * 1.2 for k, v in size_data.items()},
+            "p90": {k: v * 1.4 for k, v in size_data.items()}
+        },
+        "sample_size": 10000,  # Number of companies in benchmark
+        "last_updated": "2024-08-01"
+    }
+
+@app.post("/experiments/ab-test")
+async def create_ab_test(
+    test_config: Dict,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Create A/B test for intervention strategies"""
+    # Validate test configuration
+    required_fields = ["name", "description", "treatment_groups", "success_metrics", "duration_days"]
+    
+    for field in required_fields:
+        if field not in test_config:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Missing required field: {field}"
+            )
+    
+    # Create test ID
+    test_id = f"test_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # In production, this would be stored in database
+    test_record = {
+        "test_id": test_id,
+        "status": "active",
+        "created_by": current_user["user_id"],
+        "created_at": datetime.now().isoformat(),
+        **test_config
+    }
+    
+    return {
+        "test_id": test_id,
+        "status": "created",
+        "message": "A/B test created successfully",
+        "test_record": test_record
+    }
+
+@app.get("/reports/executive-summary")
+async def generate_executive_summary(
+    time_period: str = "last_30_days",
+    current_user: Dict = Depends(get_current_user)
+):
+    """Generate executive summary report"""
+    # In production, this would aggregate real data
+    summary = {
+        "report_period": time_period,
+        "generated_at": datetime.now().isoformat(),
+        "key_metrics": {
+            "total_employees_analyzed": 1247,
+            "average_engagement_score": 0.67,
+            "high_risk_employees": 89,
+            "turnover_predictions": 23,
+            "intervention_success_rate": 0.78
+        },
+        "trends": {
+            "engagement_trend": "declining",
+            "turnover_risk_trend": "increasing",
+            "innovation_score_trend": "stable"
+        },
+        "department_breakdown": {
+            "engineering": {"avg_score": 0.62, "count": 342, "risk_employees": 28},
+            "sales": {"avg_score": 0.71, "count": 156, "risk_employees": 12},
+            "marketing": {"avg_score": 0.69, "count": 89, "risk_employees": 7},
+            "hr": {"avg_score": 0.74, "count": 23, "risk_employees": 2}
+        },
+        "recommendations": [
+            "Focus intervention efforts on Engineering department",
+            "Implement company-wide engagement initiative",
+            "Review compensation and benefits packages",
+            "Increase manager training on engagement recognition"
+        ],
+        "roi_analysis": {
+            "predicted_cost_of_turnover": 2.4e6,  # $2.4M
+            "intervention_cost": 0.3e6,  # $300K
+            "projected_savings": 2.1e6,  # $2.1M
+            "roi_percentage": 700
+        }
+    }
+    
+    return summary
+
+# Webhook endpoints for integrations
+@app.post("/webhooks/slack")
+async def slack_webhook(payload: Dict):
+    """Handle Slack webhook for real-time notifications"""
+    # Process Slack webhook payload
+    logger.info(f"Received Slack webhook: {payload}")
+    
+    # In production, implement actual Slack integration
+    return {"status": "processed"}
+
+@app.post("/webhooks/teams")
+async def teams_webhook(payload: Dict):
+    """Handle Microsoft Teams webhook"""
+    logger.info(f"Received Teams webhook: {payload}")
+    return {"status": "processed"}
+
+# Data export endpoints
+@app.get("/export/csv/{analysis_type}")
+async def export_csv(
+    analysis_type: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Export analysis data to CSV format"""
+    if analysis_type not in ["individual", "team", "trends"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid analysis type. Must be 'individual', 'team', or 'trends'"
+        )
+    
+    # In production, generate actual CSV from database
+    return {
+        "export_url": f"/downloads/{analysis_type}_{datetime.now().strftime('%Y%m%d')}.csv",
+        "expires_at": (datetime.now() + timedelta(hours=24)).isoformat(),
+        "record_count": 1000,  # Simulated count
+        "file_size_mb": 2.5
+    }
+
+# Machine learning model management
+@app.post("/models/retrain")
+async def trigger_model_retraining(
+    retrain_config: Dict,
+    background_tasks: BackgroundTasks,
+    current_user: Dict = Depends(get_current_user)
+):
+    """Trigger model retraining with new data"""
+    # Add retraining task to background
+    background_tasks.add_task(
+        perform_model_retraining,
+        config=retrain_config,
+        user_id=current_user["user_id"]
+    )
+    
+    return {
+        "message": "Model retraining initiated",
+        "job_id": f"retrain_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        "estimated_duration_minutes": 45,
+        "status": "queued"
+    }
+
+async def perform_model_retraining(config: Dict, user_id: str):
+    """Background task for model retraining"""
+    logger.info(f"Starting model retraining requested by {user_id}")
+    
+    # Simulate retraining process
+    await asyncio.sleep(10)  # Simulate training time
+    
+    logger.info("Model retraining completed successfully")
+
+# Error handlers
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """Custom HTTP exception handler"""
+    return {
+        "error": {
+            "status_code": exc.status_code,
+            "detail": exc.detail,
+            "timestamp": datetime.now().isoformat(),
+            "path": str(request.url)
+        }
+    }
+
+@app.exception_handler(ValueError)
+async def value_error_handler(request, exc):
+    """Handle validation errors"""
+    return {
+        "error": {
+            "status_code": 422,
+            "detail": f"Validation error: {str(exc)}",
+            "timestamp": datetime.now().isoformat(),
+            "path": str(request.url)
+        }
+    }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="info",
+        reload=True  # Disable in production
+    )
