@@ -1,0 +1,109 @@
+# Behavioral Boredom Index - Production Docker Image
+# Multi-stage build for optimized production deployment
+
+# Build stage
+FROM python:3.9-slim as builder
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    gcc \
+    g++ \
+    git \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Install Python dependencies
+COPY requirements.txt /tmp/
+RUN pip install --upgrade pip setuptools wheel
+RUN pip install -r /tmp/requirements.txt
+
+# Download spaCy model
+RUN python -m spacy download en_core_web_sm
+
+# Production stage
+FROM python:3.9-slim as production
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PATH="/opt/venv/bin:$PATH"
+ENV BBI_ENV=production
+
+# Install runtime dependencies only
+RUN apt-get update && apt-get install -y \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy virtual environment from builder stage
+COPY --from=builder /opt/venv /opt/venv
+
+# Create non-root user
+RUN groupadd -r bbi && useradd -r -g bbi bbi
+
+# Create application directory
+WORKDIR /app
+
+# Copy application code
+COPY src/ ./src/
+COPY bbi.py .
+COPY api.py .
+COPY dashboard.py .
+COPY setup.py .
+COPY README.md .
+
+# Copy configuration files
+COPY config/ ./config/
+COPY scripts/ ./scripts/
+
+# Set ownership
+RUN chown -R bbi:bbi /app
+
+# Switch to non-root user
+USER bbi
+
+# Install the package
+RUN pip install -e .
+
+# Expose ports
+EXPOSE 8000 8501
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8000/health || exit 1
+
+# Default command (API server)
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+
+# Development stage
+FROM production as development
+
+USER root
+
+# Install development dependencies
+RUN pip install pytest pytest-cov black flake8 mypy pre-commit
+
+# Install Jupyter for development
+RUN pip install jupyter ipywidgets
+
+USER bbi
+
+# Override command for development
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+
+# Dashboard stage
+FROM production as dashboard
+
+# Override port and command for dashboard
+EXPOSE 8501
+CMD ["streamlit", "run", "dashboard.py", "--server.port=8501", "--server.address=0.0.0.0"]
